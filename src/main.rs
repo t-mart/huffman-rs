@@ -186,6 +186,17 @@ impl HuffmanCodec<String> {
     }
 }
 
+/// Instead of heap-allocating child nodes onto their parents (e.g. left:
+/// Box<Node<T>>), we store them in a vector and then have Nodes just reference
+/// into that vector (e.g. left: &Node<T>). This avoids issues I had with
+/// stack-overflows when dropping nodes, because the default drop implementation
+/// is recursive.
+#[derive(Debug)]
+pub struct Tree<'a, T: Symbol> {
+    root: &'a Node<T>,
+    nodes: Vec<Node<T>>,
+}
+
 #[derive(Debug)]
 pub enum NodeKind<T: Symbol> {
     Leaf {
@@ -262,44 +273,44 @@ impl<T: Symbol> Default for Node<T> {
     }
 }
 
-impl<T: Symbol> Drop for Node<T> {
-    fn drop(&mut self) {
-        let mut stack = Vec::new();
-        stack.push(std::mem::take(self));
+// impl<T: Symbol> Drop for Node<T> {
+//     fn drop(&mut self) {
+//         let mut stack = Vec::new();
+//         stack.push(std::mem::take(self));
 
-        while let Some(mut node) = stack.pop() {
-            match &mut node.kind {
-                NodeKind::Leaf { .. } => {}
-                NodeKind::Internal { left, right } => {
-                    stack.push(std::mem::take(left));
-                    stack.push(std::mem::take(right));
-                }
-            }
-        }
-    }
-}
+//         while let Some(mut node) = stack.pop() {
+//             match &mut node.kind {
+//                 NodeKind::Leaf { .. } => {}
+//                 NodeKind::Internal { left, right } => {
+//                     stack.push(std::mem::take(left));
+//                     stack.push(std::mem::take(right));
+//                 }
+//             }
+//         }
+//     }
+// }
 
-impl<T: Symbol> Drop for NodeKind<T> {
-    fn drop(&mut self) {
-        let mut stack = Vec::new();
-        stack.push(std::mem::replace(self, NodeKind::default()));
+// impl<T: Symbol> Drop for NodeKind<T> {
+//     fn drop(&mut self) {
+//         let mut stack = Vec::new();
+//         stack.push(std::mem::replace(self, NodeKind::default()));
 
-        while let Some(mut kind) = stack.pop() {
-            match &mut kind {
-                NodeKind::Leaf { .. } => {}
-                NodeKind::Internal { left, right } => {
-                    stack.push(std::mem::replace(&mut left.kind, NodeKind::default()));
-                    stack.push(std::mem::replace(&mut right.kind, NodeKind::default()));
-                }
-            }
-        }
-    }
-}
+//         while let Some(mut kind) = stack.pop() {
+//             match &mut kind {
+//                 NodeKind::Leaf { .. } => {}
+//                 NodeKind::Internal { left, right } => {
+//                     stack.push(std::mem::replace(&mut left.kind, NodeKind::default()));
+//                     stack.push(std::mem::replace(&mut right.kind, NodeKind::default()));
+//                 }
+//             }
+//         }
+//     }
+// }
 
 fn main() -> Result<()> {
     let path = Path::new("texts/the-odyssey.txt");
-    let text = std::fs::read_to_string(&path)?.chars().take(100).collect::<String>();
-    let text = "oogaa boogaa boogaa boogaa boogaa boogaa boogaa";
+    let text = std::fs::read_to_string(&path)?.chars().collect::<String>();
+    // let text = "oogaa boogaa boogaa boogaa boogaa boogaa boogaa";
     let text_bytes = text.len();
     println!("Text Size: {}", text_bytes);
 
