@@ -104,24 +104,16 @@ impl<T: Symbol> HuffmanCodec<T> {
             }
         }
 
+        for (symbol, code) in table.iter() {
+            let code_disp = code
+                .iter()
+                .map(|bit| if *bit { '1' } else { '0' })
+                .collect::<String>();
+            println!("{}: {}", symbol, code_disp);
+        }
+
         table
     }
-
-    // match &node.kind {
-    //     NodeKind::Leaf { symbol } => {
-    //         init_table.insert(symbol.clone(), BitBox::from_bitslice(&current_code));
-    //     }
-    //     NodeKind::Internal { left, right } => {
-    //         let mut left_code = current_code.clone();
-    //         left_code.push(false);
-    //         Self::build_table(init_table, &left, left_code);
-
-    //         let mut right_code = current_code.clone();
-    //         right_code.push(true);
-    //         Self::build_table(init_table, &right, right_code);
-    //     }
-    // }
-    // }
 
     pub fn from_symbols<I: Iterator<Item = T>>(symbols: I) -> HuffmanCodec<T> {
         let leaves: Vec<_> = symbols
@@ -159,25 +151,35 @@ impl<T: Symbol> HuffmanCodec<T> {
         // Build a reverse lookup from BitBox to Symbol
         let lookup: HashMap<&BitBox, &T> = self.table.iter().map(|(k, v)| (v, k)).collect();
 
+        // this lets skip codes that are too short
+        let min_code_len = lookup.keys().map(|code| code.len()).min().unwrap();
+        println!("Min Code Len: {}", min_code_len);
+    
         let mut symbols = Vec::new();
-        let mut current_bits = BitVec::default();
+    
+        let mut start_idx = 0;
+        let mut end_idx = min_code_len;
 
-        for bit in encoded.iter().progress() {
-            current_bits.push(*bit);
-            if let Some(symbol) = lookup.get(&BitBox::from_bitslice(&current_bits)) {
+        let progress_bar = ProgressBar::new(encoded.len() as u64);
+    
+        while end_idx <= encoded.len() {
+            let slice = &encoded[start_idx..end_idx];
+            if let Some(symbol) = lookup.get(&BitBox::from_bitslice(slice)) {
                 symbols.push((*symbol).clone());
-                println!("Decoded: {}", symbol);
-                current_bits.clear();
+                start_idx = end_idx;
+                end_idx += min_code_len - 1;  // increment will happen regardless, so subtract 1
             }
+            end_idx += 1;
+            progress_bar.inc(1);
         }
-
+    
         // Ensure all bits are decoded
-        if !current_bits.is_empty() {
+        if start_idx != encoded.len() {
             return Err(Error::msg(
                 "Invalid encoded data. It cannot be fully decoded.",
             ));
         }
-
+    
         Ok(symbols)
     }
 
@@ -288,41 +290,11 @@ impl<T: Symbol> Default for Node<T> {
     }
 }
 
-impl<T: Symbol> Drop for Node<T> {
-    fn drop(&mut self) {
-        let mut stack = Vec::new();
-
-        match self.kind {
-            NodeKind::Leaf { .. } => {}
-            NodeKind::Internal {
-                ref mut left,
-                ref mut right,
-            } => {
-                stack.push(std::mem::take(left));
-                stack.push(std::mem::take(right));
-            }
-        }
-
-        while let Some(mut node) = stack.pop() {
-            match &mut node.kind {
-                NodeKind::Leaf { .. } => {}
-                NodeKind::Internal {
-                    ref mut left,
-                    ref mut right,
-                } => {
-                    stack.push(std::mem::take(left));
-                    stack.push(std::mem::take(right));
-                }
-            }
-        }
-    }
-}
-
-// impl<T: Symbol> Drop for NodeKind<T> {
+// impl<T: Symbol> Drop for Node<T> {
 //     fn drop(&mut self) {
 //         let mut stack = Vec::new();
 
-//         match self {
+//         match self.kind {
 //             NodeKind::Leaf { .. } => {}
 //             NodeKind::Internal {
 //                 ref mut left,
@@ -345,14 +317,15 @@ impl<T: Symbol> Drop for Node<T> {
 //                 }
 //             }
 //         }
-//         println!("Stack size: {}", stack.len());
 //     }
 // }
+
 
 fn main() -> Result<()> {
     let path = Path::new("texts/the-odyssey.txt");
     let text = std::fs::read_to_string(&path)?.chars().collect::<String>();
-    // let text = "oogaa boogaa boogaa boogaa boogaa boogaa boogaa";
+    let text = "oogaa boogaa boogaa boogaa boogaa boogaa boogaa";
+    let text = "a b c d e f g";
     let text_bytes = text.len();
     println!("Text Size: {}", text_bytes);
 
