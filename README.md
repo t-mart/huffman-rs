@@ -7,7 +7,7 @@ A Huffman compressor/decompressor. A toy project to learn about all sorts a stuf
 - Creating traits
 - And, I dunno... other stuff too!
 
-See `main.rs` for a round-trip compression-decompression with stats:
+See `examples/roundtrip.rs` for a round-trip compression-decompression with stats, or run it with `cargo run --release --example roundtrip`:
 
 ![demo](docs/demo.png)
 

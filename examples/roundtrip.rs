@@ -2,10 +2,10 @@
 
 use anyhow::Result;
 use huffman_text::HuffmanCodec;
-use std::{path::Path, time::Instant};
+use std::{fs, path::Path, time::Instant};
 
-fn main() -> Result<()> {
-    let path = Path::new("texts/the-complete-works-of-william-shakespeare.txt");
+fn roundtrip_path<P: AsRef<Path>>(path: P) -> Result<()> {
+    let path = path.as_ref();
     println!("File: {}", path.display());
 
     let text = std::fs::read_to_string(path)?;
@@ -19,7 +19,10 @@ fn main() -> Result<()> {
     println!("Table Bytes: {table_bytes} B");
 
     println!("Symbol Count: {}", table.symbol_count());
-    println!("Min/Max Code Length Bits: {:?}", table.min_max_code_length());
+    println!(
+        "Min/Max Code Length Bits: {:?}",
+        table.min_max_code_length()
+    );
 
     let start_encode = Instant::now();
     let words = HuffmanCodec::split_by_word(&text);
@@ -40,6 +43,22 @@ fn main() -> Result<()> {
     // check equality
     let equal = text.eq(&decoded);
     println!("Decode matches original?: {equal}");
+
+    Ok(())
+}
+
+fn main() -> Result<()> {
+    let texts_path = "examples/texts";
+
+    for entry in fs::read_dir(texts_path)? {
+        let entry = entry?;
+        let path = entry.path();
+
+        if path.is_file() && path.extension() == Some(std::ffi::OsStr::new("txt")) {
+            let _ = roundtrip_path(path);
+            println!();
+        }
+    }
 
     Ok(())
 }
