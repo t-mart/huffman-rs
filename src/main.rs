@@ -15,25 +15,25 @@ use std::{
 static WORD_SPLIT_REGEX: Lazy<Mutex<Regex>> =
     Lazy::new(|| Mutex::new(Regex::new(r"\w+|\W+").unwrap()));
 
-pub trait ByteSizeable {
-    fn len(&self) -> usize;
-}
+// pub trait ByteSizeable {
+//     fn len(&self) -> usize;
+// }
 
-pub trait Symbol: Clone + Eq + Hash + Display + ByteSizeable + Debug + Default {}
+pub trait Symbol: Clone + Eq + Hash + Display + Debug + Default {}
 
-impl<T: Clone + Eq + Hash + Display + ByteSizeable + Debug + Default> Symbol for T {}
+impl<T: Clone + Eq + Hash + Display + Debug + Default> Symbol for T {}
 
-impl ByteSizeable for char {
-    fn len(&self) -> usize {
-        1
-    }
-}
+// impl ByteSizeable for char {
+//     fn len(&self) -> usize {
+//         1
+//     }
+// }
 
-impl ByteSizeable for String {
-    fn len(&self) -> usize {
-        self.len()
-    }
-}
+// impl ByteSizeable for String {
+//     fn len(&self) -> usize {
+//         self.len()
+//     }
+// }
 
 #[derive(Debug)]
 pub struct HuffmanCodec<T: Symbol> {
@@ -81,22 +81,47 @@ impl<T: Symbol> HuffmanCodec<T> {
         }
     }
 
-    fn build_table(init_table: &mut HashMap<T, BitBox>, node: &Node<T>, current_code: BitVec) {
-        match &node.kind {
-            NodeKind::Leaf { symbol } => {
-                init_table.insert(symbol.clone(), BitBox::from_bitslice(&current_code));
-            }
-            NodeKind::Internal { left, right } => {
-                let mut left_code = current_code.clone();
-                left_code.push(false);
-                Self::build_table(init_table, &left, left_code);
+    fn build_table(node: &Node<T>) -> HashMap<T, BitBox> {
+        let mut stack = Vec::new();
+        let mut table = HashMap::new();
 
-                let mut right_code = current_code.clone();
-                right_code.push(true);
-                Self::build_table(init_table, &right, right_code);
+        stack.push((node, BitVec::new()));
+
+        while let Some((node, path)) = stack.pop() {
+            match &node.kind {
+                NodeKind::Leaf { symbol } => {
+                    table.insert(symbol.clone(), BitBox::from_bitslice(&path));
+                }
+                NodeKind::Internal { left, right } => {
+                    let mut left_path = path.clone();
+                    left_path.push(false);
+                    stack.push((left, left_path));
+
+                    let mut right_path = path.clone();
+                    right_path.push(true);
+                    stack.push((right, right_path));
+                }
             }
         }
+
+        table
     }
+
+    // match &node.kind {
+    //     NodeKind::Leaf { symbol } => {
+    //         init_table.insert(symbol.clone(), BitBox::from_bitslice(&current_code));
+    //     }
+    //     NodeKind::Internal { left, right } => {
+    //         let mut left_code = current_code.clone();
+    //         left_code.push(false);
+    //         Self::build_table(init_table, &left, left_code);
+
+    //         let mut right_code = current_code.clone();
+    //         right_code.push(true);
+    //         Self::build_table(init_table, &right, right_code);
+    //     }
+    // }
+    // }
 
     pub fn from_symbols<I: Iterator<Item = T>>(symbols: I) -> HuffmanCodec<T> {
         let leaves: Vec<_> = symbols
@@ -108,8 +133,7 @@ impl<T: Symbol> HuffmanCodec<T> {
             .map(|(symbol, count)| Node::new_leaf(symbol, count))
             .collect();
         let root = Self::build_tree(leaves);
-        let mut table = HashMap::new();
-        Self::build_table(&mut table, &root, BitVec::new());
+        let table = Self::build_table(&root);
         HuffmanCodec { table }
     }
 
@@ -142,6 +166,7 @@ impl<T: Symbol> HuffmanCodec<T> {
             current_bits.push(*bit);
             if let Some(symbol) = lookup.get(&BitBox::from_bitslice(&current_bits)) {
                 symbols.push((*symbol).clone());
+                println!("Decoded: {}", symbol);
                 current_bits.clear();
             }
         }
@@ -160,8 +185,9 @@ impl<T: Symbol> HuffmanCodec<T> {
         let mut code_bits = 0;
         let mut symbol_size = 0;
         for (symbol, code) in self.table.iter() {
-            code_bits += code.len();
-            symbol_size += symbol.len();
+            code_bits += std::mem::size_of_val(code) * 8;
+            // code_bits += code.len();
+            symbol_size += std::mem::size_of_val(symbol);
         }
         code_bits / 8 + symbol_size
     }
@@ -184,17 +210,6 @@ impl HuffmanCodec<String> {
 
         Self::from_symbols(leaves.into_iter())
     }
-}
-
-/// Instead of heap-allocating child nodes onto their parents (e.g. left:
-/// Box<Node<T>>), we store them in a vector and then have Nodes just reference
-/// into that vector (e.g. left: &Node<T>). This avoids issues I had with
-/// stack-overflows when dropping nodes, because the default drop implementation
-/// is recursive.
-#[derive(Debug)]
-pub struct Tree<'a, T: Symbol> {
-    root: &'a Node<T>,
-    nodes: Vec<Node<T>>,
 }
 
 #[derive(Debug)]
@@ -273,37 +288,64 @@ impl<T: Symbol> Default for Node<T> {
     }
 }
 
-// impl<T: Symbol> Drop for Node<T> {
+impl<T: Symbol> Drop for Node<T> {
+    fn drop(&mut self) {
+        let mut stack = Vec::new();
+
+        match self.kind {
+            NodeKind::Leaf { .. } => {}
+            NodeKind::Internal {
+                ref mut left,
+                ref mut right,
+            } => {
+                stack.push(std::mem::take(left));
+                stack.push(std::mem::take(right));
+            }
+        }
+
+        while let Some(mut node) = stack.pop() {
+            match &mut node.kind {
+                NodeKind::Leaf { .. } => {}
+                NodeKind::Internal {
+                    ref mut left,
+                    ref mut right,
+                } => {
+                    stack.push(std::mem::take(left));
+                    stack.push(std::mem::take(right));
+                }
+            }
+        }
+    }
+}
+
+// impl<T: Symbol> Drop for NodeKind<T> {
 //     fn drop(&mut self) {
 //         let mut stack = Vec::new();
-//         stack.push(std::mem::take(self));
+
+//         match self {
+//             NodeKind::Leaf { .. } => {}
+//             NodeKind::Internal {
+//                 ref mut left,
+//                 ref mut right,
+//             } => {
+//                 stack.push(std::mem::take(left));
+//                 stack.push(std::mem::take(right));
+//             }
+//         }
 
 //         while let Some(mut node) = stack.pop() {
 //             match &mut node.kind {
 //                 NodeKind::Leaf { .. } => {}
-//                 NodeKind::Internal { left, right } => {
+//                 NodeKind::Internal {
+//                     ref mut left,
+//                     ref mut right,
+//                 } => {
 //                     stack.push(std::mem::take(left));
 //                     stack.push(std::mem::take(right));
 //                 }
 //             }
 //         }
-//     }
-// }
-
-// impl<T: Symbol> Drop for NodeKind<T> {
-//     fn drop(&mut self) {
-//         let mut stack = Vec::new();
-//         stack.push(std::mem::replace(self, NodeKind::default()));
-
-//         while let Some(mut kind) = stack.pop() {
-//             match &mut kind {
-//                 NodeKind::Leaf { .. } => {}
-//                 NodeKind::Internal { left, right } => {
-//                     stack.push(std::mem::replace(&mut left.kind, NodeKind::default()));
-//                     stack.push(std::mem::replace(&mut right.kind, NodeKind::default()));
-//                 }
-//             }
-//         }
+//         println!("Stack size: {}", stack.len());
 //     }
 // }
 
@@ -338,11 +380,7 @@ fn main() -> Result<()> {
 
     // check equality
     let equal = text.eq(&decoded);
-    let equal_str = match equal {
-        true => "✔️",
-        false => "❌",
-    };
-    println!("Match: {}", equal_str);
+    println!("Decode matches original?: {}", equal);
 
     Ok(())
 }
