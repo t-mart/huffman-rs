@@ -27,14 +27,28 @@ impl<T: Symbol> TreeBuilder<T> {
         TreeBuilder { nodes: Vec::new() }
     }
 
+    /// Adds a stream of symbols to the tree builder. For each unique symbol, its count
+    /// is tallied, and then all symbols are added.
+    fn add_symbols<I: Iterator<Item = T>>(&mut self, symbols: I) {
+        symbols
+            .fold(HashMap::new(), |mut map, symbol| {
+                *map.entry(symbol).or_insert(0) += 1;
+                map
+            })
+            .into_iter()
+            .for_each(|(symbol, count)| self.add_symbol(symbol, count))
+    }
+
+    /// Adds a symbol and its count to the tree builder.
     fn add_symbol(&mut self, symbol: T, count: u32) {
         self.nodes.push(Node::new_leaf(symbol, count));
     }
 
     fn build(&mut self) -> Node<T> {
+        // sort ascending by count (lowest count first)
         self.nodes.sort_by(|a, b| a.count.cmp(&b.count));
-        let mut leaf_q = self.nodes.into_iter().collect::<VecDeque<_>>();
-        let mut internal_q: VecDeque<Node<T>> = VecDeque::new();
+        let mut leaf_q = self.nodes.drain(..).collect::<VecDeque<_>>();
+        let mut internal_q = VecDeque::new();
 
         while leaf_q.len() + internal_q.len() > 1 {
             // Combine the nodes into a new internal node
@@ -80,6 +94,19 @@ pub struct HuffmanCodec<T: Symbol> {
 }
 
 impl<T: Symbol> HuffmanCodec<T> {
+    pub fn from_symbols<I: Iterator<Item = T>>(symbols: I) -> HuffmanCodec<T> {
+        let mut tree_builder = TreeBuilder::new();
+        tree_builder.add_symbols(symbols);
+        let root = tree_builder.build();
+
+        Self::from_root(&root)
+    }
+
+    pub fn from_root(root: &Node<T>) -> HuffmanCodec<T> {
+        let table = Self::build_table(root);
+        HuffmanCodec { table }
+    }
+
     fn build_table(node: &Node<T>) -> HashMap<T, BitBox> {
         let mut stack = Vec::new();
         let mut table = HashMap::new();
@@ -106,32 +133,12 @@ impl<T: Symbol> HuffmanCodec<T> {
         table
     }
 
-    pub fn from_symbols<I: Iterator<Item = T>>(symbols: I) -> HuffmanCodec<T> {
-        let leaves: Vec<_> = symbols
-            .fold(HashMap::new(), |mut map, symbol| {
-                *map.entry(symbol).or_insert(0) += 1;
-                map
-            })
-            .into_iter()
-            // .map(|(symbol, count)| Node::new_leaf(symbol, count))
-            .collect();
-
-        let mut tree_builder = TreeBuilder::new();
-        for (symbol, count) in leaves {
-            tree_builder.add_symbol(symbol, count);
-        }
-        let root = tree_builder.build();
-
-        let table = Self::build_table(&root);
-        HuffmanCodec { table }
-    }
-
-    /// Encodes a stream of symbols into a ``BitBox``.
+    /// Compresses a stream of symbols into a ``BitBox``.
     ///
     /// # Errors
     ///
     /// Will return an error if a symbol is not found in the Huffman table.
-    pub fn encode<I: Iterator<Item = T>>(&self, stream: I) -> Result<BitBox> {
+    pub fn compress<I: Iterator<Item = T>>(&self, stream: I) -> Result<BitBox> {
         let mut result = BitVec::default();
 
         for symbol in stream {
@@ -148,12 +155,12 @@ impl<T: Symbol> HuffmanCodec<T> {
         Ok(BitBox::from_bitslice(&result))
     }
 
-    /// Decodes a ``BitBox`` into a Vec of symbols.
+    /// Decompresses a ``BitBox`` into a Vec of symbols.
     ///
     /// # Errors
     ///
     /// Will return an error if the encoded data cannot be fully decoded.
-    pub fn decode(&self, encoded: &BitBox) -> Result<Vec<T>> {
+    pub fn decompress(&self, encoded: &BitBox) -> Result<Vec<T>> {
         // Build a reverse lookup from BitBox to Symbol
         let lookup: HashMap<&BitBox, &T> = self.table.iter().map(|(k, v)| (v, k)).collect();
 
@@ -185,6 +192,9 @@ impl<T: Symbol> HuffmanCodec<T> {
         Ok(symbols)
     }
 
+    /// Returns the approximate size of the Huffman table in bytes.
+    /// Specifically, it adds the number of bits in each code and the size of
+    /// each symbol.
     pub fn size(&self) -> usize {
         let mut code_bits = 0;
         let mut symbol_size = 0;
