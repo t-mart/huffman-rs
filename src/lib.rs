@@ -18,34 +18,22 @@ pub trait Symbol: Clone + Eq + Hash + Display + Default {}
 
 impl<T: Clone + Eq + Hash + Display + Default> Symbol for T {}
 
-#[derive(Debug)]
-pub struct HuffmanCodec<T: Symbol> {
-    table: HashMap<T, BitBox>,
+struct TreeBuilder<T: Symbol> {
+    nodes: Vec<Node<T>>,
 }
 
-impl<T: Symbol> HuffmanCodec<T> {
-    /// Pop either of the two nodes with the smallest weight from the front of
-    /// the two queues. If one queue is empty, pop from the other queue. If both
-    /// queues are empty, panic.
-    fn pop_smallest(a: &mut VecDeque<Node<T>>, b: &mut VecDeque<Node<T>>) -> Node<T> {
-        match (a.front(), b.front()) {
-            (Some(ai), Some(bi)) => {
-                if ai.count <= bi.count {
-                    a.pop_front().unwrap()
-                } else {
-                    b.pop_front().unwrap()
-                }
-            }
-            (Some(_), None) => a.pop_front().unwrap(),
-            (None, Some(_)) => b.pop_front().unwrap(),
-            (None, None) => panic!("Both queues are empty"),
-        }
+impl<T: Symbol> TreeBuilder<T> {
+    fn new() -> Self {
+        TreeBuilder { nodes: Vec::new() }
     }
 
-    fn build_tree(nodes: Vec<Node<T>>) -> Node<T> {
-        let mut nodes = nodes;
-        nodes.sort_by(|a, b| a.count.cmp(&b.count));
-        let mut leaf_q = nodes.into_iter().collect::<VecDeque<_>>();
+    fn add_symbol(&mut self, symbol: T, count: u32) {
+        self.nodes.push(Node::new_leaf(symbol, count));
+    }
+
+    fn finalize(&mut self) -> Node<T> {
+        self.nodes.sort_by(|a, b| a.count.cmp(&b.count));
+        let mut leaf_q = self.nodes.into_iter().collect::<VecDeque<_>>();
         let mut internal_q: VecDeque<Node<T>> = VecDeque::new();
 
         while leaf_q.len() + internal_q.len() > 1 {
@@ -67,6 +55,31 @@ impl<T: Symbol> HuffmanCodec<T> {
         }
     }
 
+    /// Pop either of the two nodes with the smallest weight from the front of
+    /// the two queues. If one queue is empty, pop from the other queue. If both
+    /// queues are empty, panic.
+    fn pop_smallest(a: &mut VecDeque<Node<T>>, b: &mut VecDeque<Node<T>>) -> Node<T> {
+        match (a.front(), b.front()) {
+            (Some(ai), Some(bi)) => {
+                if ai.count <= bi.count {
+                    a.pop_front().unwrap()
+                } else {
+                    b.pop_front().unwrap()
+                }
+            }
+            (Some(_), None) => a.pop_front().unwrap(),
+            (None, Some(_)) => b.pop_front().unwrap(),
+            (None, None) => panic!("Both queues are empty"),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct HuffmanCodec<T: Symbol> {
+    table: HashMap<T, BitBox>,
+}
+
+impl<T: Symbol> HuffmanCodec<T> {
     fn build_table(node: &Node<T>) -> HashMap<T, BitBox> {
         let mut stack = Vec::new();
         let mut table = HashMap::new();
@@ -100,9 +113,15 @@ impl<T: Symbol> HuffmanCodec<T> {
                 map
             })
             .into_iter()
-            .map(|(symbol, count)| Node::new_leaf(symbol, count))
+            // .map(|(symbol, count)| Node::new_leaf(symbol, count))
             .collect();
-        let root = Self::build_tree(leaves);
+
+        let mut tree_builder = TreeBuilder::new();
+        for (symbol, count) in leaves {
+            tree_builder.add_symbol(symbol, count);
+        }
+        let root = tree_builder.finalize();
+
         let table = Self::build_table(&root);
         HuffmanCodec { table }
     }
