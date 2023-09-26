@@ -31,7 +31,7 @@ impl<T: Symbol> TreeBuilder<T> {
         self.nodes.push(Node::new_leaf(symbol, count));
     }
 
-    fn finalize(&mut self) -> Node<T> {
+    fn build(&mut self) -> Node<T> {
         self.nodes.sort_by(|a, b| a.count.cmp(&b.count));
         let mut leaf_q = self.nodes.into_iter().collect::<VecDeque<_>>();
         let mut internal_q: VecDeque<Node<T>> = VecDeque::new();
@@ -120,7 +120,7 @@ impl<T: Symbol> HuffmanCodec<T> {
         for (symbol, count) in leaves {
             tree_builder.add_symbol(symbol, count);
         }
-        let root = tree_builder.finalize();
+        let root = tree_builder.build();
 
         let table = Self::build_table(&root);
         HuffmanCodec { table }
