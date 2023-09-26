@@ -24,6 +24,24 @@ pub struct HuffmanCodec<T: Symbol> {
 }
 
 impl<T: Symbol> HuffmanCodec<T> {
+    /// Pop either of the two nodes with the smallest weight from the front of
+    /// the two queues. If one queue is empty, pop from the other queue. If both
+    /// queues are empty, panic.
+    fn pop_smallest(a: &mut VecDeque<Node<T>>, b: &mut VecDeque<Node<T>>) -> Node<T> {
+        match (a.front(), b.front()) {
+            (Some(ai), Some(bi)) => {
+                if ai.count <= bi.count {
+                    a.pop_front().unwrap()
+                } else {
+                    b.pop_front().unwrap()
+                }
+            }
+            (Some(_), None) => a.pop_front().unwrap(),
+            (None, Some(_)) => b.pop_front().unwrap(),
+            (None, None) => panic!("Both queues are empty"),
+        }
+    }
+
     fn build_tree(nodes: Vec<Node<T>>) -> Node<T> {
         let mut nodes = nodes;
         nodes.sort_by(|a, b| a.count.cmp(&b.count));
@@ -31,28 +49,11 @@ impl<T: Symbol> HuffmanCodec<T> {
         let mut internal_q: VecDeque<Node<T>> = VecDeque::new();
 
         while leaf_q.len() + internal_q.len() > 1 {
-            // Dequeue the two nodes with the lowest weights
-            let mut smallest = Vec::with_capacity(2);
-            for _ in 0..2 {
-                let leaf_top = leaf_q.front();
-                let internal_top = internal_q.front();
-
-                smallest.push(match (leaf_top, internal_top) {
-                    (Some(leaf_node), Some(internal_node)) => {
-                        if leaf_node.count <= internal_node.count {
-                            leaf_q.pop_front().unwrap()
-                        } else {
-                            internal_q.pop_front().unwrap()
-                        }
-                    }
-                    (Some(_), None) => leaf_q.pop_front().unwrap(),
-                    (None, Some(_)) => internal_q.pop_front().unwrap(),
-                    (None, None) => panic!("Both queues are empty"),
-                });
-            }
-
             // Combine the nodes into a new internal node
-            let internal = Node::new_internal(smallest.pop().unwrap(), smallest.pop().unwrap());
+            let internal = Node::new_internal(
+                Self::pop_smallest(&mut leaf_q, &mut internal_q),
+                Self::pop_smallest(&mut leaf_q, &mut internal_q),
+            );
 
             // Enqueue the new internal node into the rear of the internal queue
             internal_q.push_back(internal);
@@ -62,7 +63,7 @@ impl<T: Symbol> HuffmanCodec<T> {
         if let Some(node) = internal_q.pop_front() {
             node
         } else {
-            leaf_q.pop_front().unwrap()
+            leaf_q.pop_front().expect("No nodes in Huffman tree")
         }
     }
 
